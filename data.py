@@ -1,4 +1,5 @@
 import os
+import re
 import urllib.parse
 import yaml
 
@@ -6,6 +7,7 @@ class Source(object):
 	KEY = None
 	SEARCH_URL = None
 	OPEN_URL = None
+	PARSE_OPEN_URL_TO_ID = None
 
 	@classmethod
 	def SearchURL(cls, terms):
@@ -13,6 +15,10 @@ class Source(object):
 	@classmethod
 	def OpenURL(cls, id):
 		return cls.OPEN_URL % (urllib.parse.quote(str(id)),)
+	@classmethod
+	def ParseOpenURLToID(cls, url):
+		res = cls.PARSE_OPEN_URL_TO_ID.search(url)
+		return res.group(1) if res else None
 
 	def __init__(self, id):
 		self._id = id
@@ -59,6 +65,9 @@ class Context(object):
 		'anidb', 'mal', 'tvdb', 'imdb',
 	))
 
+	_SEARCHABLE_FILTER = re.compile(r'[^\s\w]')
+	_SEARCHABLE_JOIN = re.compile(r'\s+')
+
 	def __init__(self, parent, path):
 		self._parent = parent
 		self._path = path
@@ -102,6 +111,9 @@ class Context(object):
 		if ' - ' in name:
 			name = name[name.index(' - ') + 3:]
 		return name
+	@property
+	def name_searchable(self):
+		return self._SEARCHABLE_JOIN.sub(' ', self._SEARCHABLE_FILTER.sub(' ', self.name_noprefix))
 
 	def Get(self, key):
 		return self.soundtrack.get(key, self.ova.get(key, self.movie.get(key, self.season.get(key, self.series.get(key)))))
