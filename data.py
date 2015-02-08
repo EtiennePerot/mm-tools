@@ -203,7 +203,7 @@ def readYAML(path):
 
 def traverse(path, context):
 	"""Traverse path and its subdirectories, picking up files as it goes. Yields Contexts."""
-	entries = os.listdir(path)
+	entries = list(sorted(os.listdir(path)))
 	if infoFile in entries:
 		data = readYAML(os.path.join(path, infoFile))
 		context = context.SubContext(path, data)
