@@ -24,28 +24,34 @@ class TVDB(Source):
 	KEY = 'tvdb'
 	SEARCH_URL = 'http://thetvdb.com/?string=%s&tab=listseries&function=Search'
 	OPEN_URL = 'http://thetvdb.com/?tab=series&id=%s'
+	PARSE_OPEN_URL_TO_ID = re.compile(r'://[^/]*thetvdb.com/.*[?&]id=(\d+)', re.IGNORECASE)
 
 class AniDB(Source):
 	KEY = 'anidb'
 	SEARCH_URL = 'http://anidb.net/perl-bin/animedb.pl?show=animelist&adb.search=%s'
 	OPEN_URL = 'http://anidb.net/perl-bin/animedb.pl?show=anime&aid=%s'
+	PARSE_OPEN_URL_TO_ID = re.compile(r'://[^/]*anidb.net/.*animedb.*[?&]aid=(\d+)', re.IGNORECASE)
 
 class MAL(Source):
 	KEY = 'mal'
 	SEARCH_URL = 'http://myanimelist.net/anime.php?q=%s'
 	OPEN_URL = 'http://myanimelist.net/anime/%s'
+	PARSE_OPEN_URL_TO_ID = re.compile(r'://[^/]*myanimelist.net/anime/(\d+)/', re.IGNORECASE)
 
 class IMDB(Source):
 	KEY = 'imdb'
 	SEARCH_URL = 'http://www.imdb.com/find?s=tt&q=%s'
 	OPEN_URL = 'http://www.imdb.com/title/%s'
+	PARSE_OPEN_URL_TO_ID = re.compile(r'://[^/]*imdb.com/title/(tt\d+)', re.IGNORECASE)
 
 infoFile = '.info'
 
 class Context(object):
-	KIND_SERIES = 'kSeries'
-	KIND_SEASON = 'kSeason'
-	KIND_MOVIE = 'kMovie'
+	KIND_SERIES = 'series'
+	KIND_SEASON = 'season'
+	KIND_MOVIE = 'movie'
+	KIND_OVA = 'ova'
+	KIND_SOUNDTRACK = 'soundtrack'
 
 	KNOWN_KEYS = frozenset((
 		'name',
@@ -59,6 +65,9 @@ class Context(object):
 		self._series = {}
 		self._season = {}
 		self._movie = {}
+		self._ova = {}
+		self._soundtrack = {}
+		self._kind = None
 
 	@property
 	def path(self):
@@ -76,13 +85,14 @@ class Context(object):
 	def movie(self):
 		return self._movie
 	@property
+	def ova(self):
+		return self._ova
+	@property
+	def soundtrack(self):
+		return self._soundtrack
+	@property
 	def kind(self):
-		if 'name' in self.movie:
-			return self.KIND_MOVIE
-		if 'name' in self.season:
-			return self.KIND_SEASON
-		if 'name' in self.series:
-			return self.KIND_SERIES
+		return self._kind
 	@property
 	def name(self):
 		return self.Get('name')
@@ -94,7 +104,7 @@ class Context(object):
 		return name
 
 	def Get(self, key):
-		return self.movie.get(key, self.season.get(key, self.series.get(key)))
+		return self.soundtrack.get(key, self.ova.get(key, self.movie.get(key, self.season.get(key, self.series.get(key)))))
 
 	def GetSource(self, source):
 		id = self.Get(source.KEY)
@@ -103,10 +113,10 @@ class Context(object):
 		return source(id)
 
 	def sanityCheck(self):
-		for d in self.movie, self.season, self.series:
+		for d in self.soundtrack, self.ova, self.movie, self.season, self.series:
 			for k in d.keys():
 				if k not in self.KNOWN_KEYS:
-					raise RuntimeError('Unknown key "%s" in %s' % (k, ))
+					raise RuntimeError('Unknown key "%s" in %s' % (k, self))
 
 	def SubContext(self, path, data):
 		"""Returns a new Context with overlaid data."""
@@ -115,28 +125,45 @@ class Context(object):
 		sub._series = self.series.copy()
 		sub._season = self.season.copy()
 		sub._movie = self.movie.copy()
+		sub._ova = self.ova.copy()
+		sub._soundtrack = self.soundtrack.copy()
 		if 'series' in data:
 			series = data['series'] or {}
 			sub._series.update(series)
 			sub._series['name'] = series.get('name', folderName)
+			sub._kind = self.KIND_SERIES
 		if 'season' in data:
 			season = data['season'] or {}
 			sub._season.update(season)
 			sub._season['name'] = season.get('name', folderName)
+			sub._kind = self.KIND_SEASON
 		if 'movie' in data:
 			movie = data['movie'] or {}
 			sub._movie.update(movie)
 			sub._movie['name'] = movie.get('name', folderName)
+			sub._kind = self.KIND_MOVIE
+		if 'ova' in data:
+			ova = data['ova'] or {}
+			sub._ova.update(ova)
+			sub._ova['name'] = ova.get('name', folderName)
+			sub._kind = self.KIND_OVA
+		if 'soundtrack' in data:
+			soundtrack = data['soundtrack'] or {}
+			sub._soundtrack.update(soundtrack)
+			sub._soundtrack['name'] = soundtrack.get('name', folderName)
+			sub._kind = self.KIND_SOUNDTRACK
 		sub.sanityCheck()
 		return sub
 
 	def Overwrite(self):
 		finalData = {}
-		for key, dataFunc in {'series': lambda x: x.series, 'season': lambda x: x.season, 'movie': lambda x: x.movie}.items():
+		for key, dataFunc in {'series': lambda x: x.series, 'season': lambda x: x.season, 'movie': lambda x: x.movie, 'ova': lambda x: x.ova, 'soundtrack': lambda x: x.soundtrack}.items():
 			if self._parent is None or dataFunc(self) != dataFunc(self._parent):
 				data = dataFunc(self).copy()
 				if 'name' in data:
 					del data['name']
+				if not data: # Empty dictionary
+					data = None
 				finalData[key] = data
 		if not finalData:
 			return
@@ -153,11 +180,8 @@ class Context(object):
 	def __str__(self):
 		"""String representation."""
 		series = self.series.get('name', 'UNKNOWN_SERIES')
-		if 'name' in self.movie:
-			return '%s :: %s (movie)' % (series, self.movie['name'])
-		if 'name' in self.season:
-			return '%s :: %s (season)' % (series, self.season['name'])
-		return '%s :: %s' % (series, 'ROOT')
+		sub = 'ROOT' if self.kind == self.KIND_SERIES else self.name
+		return '%s :: %s (%s)' % (series, sub, self.kind)
 
 def readYAML(path):
 	f = open(path, 'r')
