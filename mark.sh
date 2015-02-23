@@ -62,7 +62,7 @@ for d; do
 					echo "Sub-info '$subInfo' already exists. Skipping."
 				else
 					default='season'
-					if echo "$subFilename" | grep -qi ova; then
+					if echo "$subFilename" | grep -qi 'o[nv]a'; then
 						default='ova'
 					elif echo "$subFilename" | grep -qi movie; then
 						default='movie'
