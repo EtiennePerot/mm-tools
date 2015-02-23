@@ -1,0 +1,3 @@
+[submodule "submodules/tvdb_api"]
+	path = submodules/tvdb_api
+	url = https://github.com/dbr/tvdb_api
