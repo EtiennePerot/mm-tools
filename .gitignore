@@ -53,3 +53,6 @@ docs/_build/
 
 # PyBuilder
 target/
+
+# Custom files
+mal_api_config.py
