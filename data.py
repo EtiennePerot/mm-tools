@@ -1,6 +1,9 @@
 import os
 import re
 import urllib.parse
+
+import bs4
+import requests
 import yaml
 
 class Source(object):
@@ -8,10 +11,28 @@ class Source(object):
 	SEARCH_URL = None
 	OPEN_URL = None
 	PARSE_OPEN_URL_TO_ID = None
+	ART_RESOURCE_TYPES = ()
 
 	@classmethod
 	def SearchURL(cls, terms):
 		return cls.SEARCH_URL % (urllib.parse.quote(terms),)
+	@classmethod
+	def GetBestMatch(cls, terms):
+		searchURL = cls.SearchURL(terms)
+		content = requests.get(searchURL, headers={'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/37.0.2062.120 Safari/537.36'}, timeout=5).text
+		soup = bs4.BeautifulSoup(content)
+		for tag in soup.find_all('a'):
+			try:
+				url = urllib.parse.urljoin(searchURL, tag['href'])
+				res = cls.PARSE_OPEN_URL_TO_ID.search(url)
+				if not res:
+					continue
+				id = cls.ParseOpenURLToID(res.group(0))
+				if id:
+					return id
+			except KeyError:
+				pass
+		return None
 	@classmethod
 	def OpenURL(cls, id):
 		return cls.OPEN_URL % (urllib.parse.quote(str(id)),)
@@ -19,6 +40,9 @@ class Source(object):
 	def ParseOpenURLToID(cls, url):
 		res = cls.PARSE_OPEN_URL_TO_ID.search(url)
 		return res.group(1) if res else None
+	@classmethod
+	def CleanURL(cls, url):
+		return url
 
 	def __init__(self, id):
 		self._id = id
@@ -31,6 +55,7 @@ class TVDB(Source):
 	SEARCH_URL = 'http://thetvdb.com/?string=%s&tab=listseries&function=Search'
 	OPEN_URL = 'http://thetvdb.com/?tab=series&id=%s'
 	PARSE_OPEN_URL_TO_ID = re.compile(r'://[^/]*thetvdb.com/.*[?&]id=(\d+)', re.IGNORECASE)
+	ART_RESOURCE_TYPES = ('background', 'banner', 'poster')
 
 class AniDB(Source):
 	KEY = 'anidb'
@@ -42,13 +67,41 @@ class MAL(Source):
 	KEY = 'mal'
 	SEARCH_URL = 'http://myanimelist.net/anime.php?q=%s'
 	OPEN_URL = 'http://myanimelist.net/anime/%s'
-	PARSE_OPEN_URL_TO_ID = re.compile(r'://[^/]*myanimelist.net/anime/(\d+)/', re.IGNORECASE)
+	PARSE_OPEN_URL_TO_ID = re.compile(r'://[^/]*myanimelist.net/anime/(\d+)', re.IGNORECASE)
+
+	@classmethod
+	def _GetAPICreds(cls):
+		import mal_api_config
+		return mal_api_config.api_user, mal_api_config.api_password
+	@classmethod
+	def GetBestMatch(cls, terms):
+		return None # Return None for now; Incapsula is too easy to trip up.
+		soup = bs4.BeautifulSoup(requests.get('http://myanimelist.net/api/anime/search.xml?q=%s' % (urllib.parse.quote(terms),), auth=cls._GetAPICreds(), headers={'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/37.0.2062.120 Safari/537.36'}, timeout=5).text)
+		entries = soup.find_all('id')
+		return entries[0].text if entries else None
 
 class IMDB(Source):
 	KEY = 'imdb'
 	SEARCH_URL = 'http://www.imdb.com/find?s=tt&q=%s'
 	OPEN_URL = 'http://www.imdb.com/title/%s'
 	PARSE_OPEN_URL_TO_ID = re.compile(r'://[^/]*imdb.com/title/(tt\d+)', re.IGNORECASE)
+
+class MoviePosterDB(Source):
+	SEARCH_URL = 'http://www.movieposterdb.com/search/?query=%s'
+	ART_RESOURCE_TYPES = ('poster',)
+
+class ZeroChan(Source):
+	SEARCH_URL = 'http://www.zerochan.net/search?q=%s'
+	ART_RESOURCE_TYPES = ('background', 'poster')
+
+class MiniTokyo(Source):
+	SEARCH_URL = 'http://www.minitokyo.net/search?q=%s'
+	ART_RESOURCE_TYPES = ('background', 'poster')
+
+	_CLEAN_QUERY_ON_IMAGES = re.compile(r'^([^:/]+://static\.minitokyo\.[^?]+/downloads/[^?]+)\?.*$', re.IGNORECASE)
+	@classmethod
+	def CleanURL(cls, url):
+		return cls._CLEAN_QUERY_ON_IMAGES.sub(r'\1', url)
 
 infoFile = '.info'
 
@@ -103,6 +156,15 @@ class Context(object):
 	def kind(self):
 		return self._kind
 	@property
+	def kind_data(self):
+		return {
+			self.KIND_SERIES: self.series,
+			self.KIND_SEASON: self.season,
+			self.KIND_MOVIE: self.movie,
+			self.KIND_OVA: self.ova,
+			self.KIND_SOUNDTRACK: self.soundtrack,
+		}[self.kind]
+	@property
 	def name(self):
 		return self.Get('name')
 	@property
@@ -115,6 +177,8 @@ class Context(object):
 	def name_searchable(self):
 		return self._SEARCHABLE_JOIN.sub(' ', self._SEARCHABLE_FILTER.sub(' ', self.name_noprefix))
 
+	def GetSingle(self, key):
+		return self.kind_data.get(key)
 	def Get(self, key):
 		return self.soundtrack.get(key, self.ova.get(key, self.movie.get(key, self.season.get(key, self.series.get(key)))))
 
@@ -166,6 +230,10 @@ class Context(object):
 			sub._kind = self.KIND_SOUNDTRACK
 		sub.sanityCheck()
 		return sub
+
+	def GatherSubContexts(self):
+		yield self
+		yield from traverse(self.path, self)
 
 	def Overwrite(self):
 		finalData = {}
