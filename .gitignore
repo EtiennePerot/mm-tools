@@ -55,4 +55,4 @@ docs/_build/
 target/
 
 # Custom files
-mal_api_config.py
+api_config.py

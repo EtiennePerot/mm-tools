@@ -5,7 +5,7 @@
 set -e
 
 kind="$1"
-if [ "$kind" != series -a "$kind" != season -a "$kind" != movie -a "$kind" != ova -a "$kind" != soundtrack -a "$kind" != missing ]; then
+if [ "$kind" != series -a "$kind" != season -a "$kind" != movie -a "$kind" != ova -a "$kind" != soundtrack -a "$kind" != ignore -a "$kind" != missing ]; then
 	echo "Usage: $0 <series|season|movie|missing> dir1 dir2 ..."
 	exit 1
 fi
@@ -18,6 +18,10 @@ if [ "$kind" == missing ]; then
 fi
 
 for d; do
+	if [ ! -d "$d" ]; then
+		echo "Skipping non-directory '$d'."
+		continue
+	fi
 	infoFile="$d/.info"
 	if [ -e "$infoFile" ]; then
 		existingKind="$(grep -P '^(series|season|movie|ova|soundtrack):' "$infoFile" | cut -d: -f1 || true)"
@@ -42,7 +46,7 @@ for d; do
 			if [ -z "$kind" ]; then
 				kind='series'
 			fi
-			if [ "$kind" != series -a "$kind" != season -a "$kind" != movie -a "$kind" != ova -a "$kind" != soundtrack -a "$subKind" != skip ]; then
+			if [ "$kind" != series -a "$kind" != season -a "$kind" != movie -a "$kind" != ova -a "$kind" != soundtrack -a "$kind" != ignore -a "$subKind" != skip ]; then
 				echo "Invalid kind '$kind'. Exitting."
 				exit 1
 			fi
@@ -79,7 +83,7 @@ for d; do
 					if [ -z "$subKind" ]; then
 						subKind="$default"
 					fi
-					if [ "$subKind" != series -a "$subKind" != season -a "$subKind" != movie -a "$subKind" != ova -a "$subKind" != soundtrack -a "$subKind" != skip ]; then
+					if [ "$subKind" != series -a "$subKind" != season -a "$subKind" != movie -a "$subKind" != ova -a "$subKind" != soundtrack -a "$subKind" != ignore -a "$subKind" != skip ]; then
 						echo "Invalid kind '$subKind'. Exitting."
 						exit 1
 					fi
