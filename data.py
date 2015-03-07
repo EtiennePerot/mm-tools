@@ -148,6 +148,36 @@ artResourceFilenames = {
 	'background': 'fanart',
 }
 
+
+class Library(object):
+	def __init__(self, path):
+		self._path = path
+		data = readYAML(os.path.join(self.path, rootFile))['library']
+		self._reflected_path = data['reflected_path']
+		assert os.path.isdir(self.reflected_path)
+		assert self.reflected_path[0] == os.sep # Must be an absolute path.
+		self._background = data['background']
+		assert os.path.isfile(self.background)
+		self._kodi_profiles = data['kodi_profiles']
+		for p in self.kodi_profiles:
+			assert os.path.isdir(p)
+
+	@property
+	def path(self):
+		return self._path
+	@property
+	def reflected_path(self):
+		return self._reflected_path
+	@property
+	def background(self):
+		return self._background
+	@property
+	def kodi_profiles(self):
+		return self._kodi_profiles
+
+	def __str__(self):
+		return 'Library<%s>' % (self.path)
+
 class Episode(object):
 	_EPISODE_NUMBER_GUESS_REGEXES = (
 		r'(?:[^0-9a-z]|\b|(?:(?:[^0-9a-z]|\b)se?\d{1,3}))ep?(\d{2,3})(?!-bit)(?:v\d+)?(?:[^0-9a-z]|\b)',
@@ -325,11 +355,11 @@ class Context(object):
 			root = os.path.dirname(root)
 		return root
 	@property
+	def library(self):
+		return Library(self.root)
+	@property
 	def reflected_root(self):
-		reflected = open(os.path.join(self.root, rootFile), 'r').read(-1).strip()
-		assert reflected[0] == os.sep # Must be an absolute path.
-		assert os.path.isdir(reflected)
-		return os.path.abspath(reflected)
+		return self.library.reflected_path
 	@property
 	def reflected_path(self):
 		path = os.path.abspath(self.path)
